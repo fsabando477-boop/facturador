@@ -10,13 +10,17 @@ vistos en las semanas anteriores:
   ClienteMayorista`; `ComprobanteElectronico` -> `Factura`.
 - **Polimorfismo**: la factura llama a `cliente.calcularDescuento(...)` y a
   `impuesto.calcularValor()` sin saber la clase concreta.
-- **Semana 5 - Colecciones y genericos**: `List<Detalle>`, `List<Pago>`,
-  `List<Impuesto>` en el modelo y `Map<String, ComprobanteElectronico>` en el
-  registro. La interfaz `RegistroComprobantes` es la abstraccion, y
-  `RegistroComprobantesEnMemoria` la implementa con un `LinkedHashMap`.
+- **Semana 5 - Colecciones y genericos**: se usan las tres colecciones que pide
+  la tarea:
+  - `ArrayList<Detalle>` en `Pantalla` para el catalogo de productos.
+  - `HashSet<String>` en `Pantalla` para evitar codigos duplicados en O(1).
+  - `HashMap<String, ComprobanteElectronico>` (LinkedHashMap) en
+    `RegistroComprobantesEnMemoria`.
+  Ademas hay `List<Impuesto>`, `List<Pago>` y `List<CampoAdicional>` dentro del
+  modelo.
 - **Semana 6 - Interfaz grafica y eventos**: `Pantalla.java` con Swing en
-  pestanas, botones que hacen CRUD sobre la lista de detalles y validaciones
-  visibles con `JOptionPane`.
+  pestanas, botones para las 5 operaciones CRUD (Agregar, Editar, Eliminar,
+  Buscar, Limpiar) sobre el catalogo y validaciones con `JOptionPane`.
 
 ## Estructura del codigo
 
@@ -64,9 +68,14 @@ java -cp target/classes com.fsabando.facturador.Facturador
    digito verificador para cedulas y RUC), razon social y direccion. Se elige
    ademas si el cliente es **Minorista** o **Mayorista** (aqui se demuestra el
    polimorfismo del descuento).
-4. **Pestana Detalles**: **Agregar producto** abre un dialogo que crea un
-   `Detalle` con validacion y lo agrega a la tabla. Tambien se puede
-   **Eliminar seleccionado** o **Limpiar tabla** (CRUD sobre la coleccion).
+4. **Pestana Detalles**: catalogo de productos con las 5 operaciones CRUD:
+   - **Agregar**: abre el dialogo para crear un producto. Si el codigo ya
+     existe en el `HashSet`, se rechaza.
+   - **Editar**: reabre el dialogo con la fila seleccionada prellenada.
+   - **Eliminar**: quita la fila del catalogo y libera su codigo.
+   - **Buscar**: por codigo o descripcion; selecciona y desplaza la tabla al
+     resultado.
+   - **Limpiar tabla**: vacia el catalogo.
 5. **Pestana Pago**: elegir la forma de pago del SRI.
 6. Con **Emitir factura y generar XML** la aplicacion:
    - Construye el modelo (`Factura`, `Detalle`, `Pago`, ...).

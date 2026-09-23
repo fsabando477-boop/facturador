@@ -5,6 +5,7 @@ import com.fsabando.facturador.catalogo.FormaPago;
 import com.fsabando.facturador.catalogo.TarifaIva;
 import com.fsabando.facturador.catalogo.TipoEmision;
 import com.fsabando.facturador.catalogo.TipoIdentificacion;
+import com.fsabando.facturador.modelo.CampoAdicional;
 import com.fsabando.facturador.modelo.Cliente;
 import com.fsabando.facturador.modelo.ClienteMayorista;
 import com.fsabando.facturador.modelo.ClienteMinorista;
@@ -12,6 +13,8 @@ import com.fsabando.facturador.modelo.Detalle;
 import com.fsabando.facturador.modelo.InfoTributaria;
 import com.fsabando.facturador.modelo.Pago;
 import com.fsabando.facturador.modelo.comprobante.Factura;
+import com.fsabando.facturador.modelo.impuesto.Impuesto;
+import com.fsabando.facturador.modelo.impuesto.Iva;
 import com.fsabando.facturador.registro.RegistroComprobantes;
 import com.fsabando.facturador.registro.RegistroComprobantesEnMemoria;
 import com.fsabando.facturador.xml.GeneradorXmlFactura;
@@ -26,22 +29,35 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Ventana principal de la aplicacion.
  *
- * <p>Recolecta los datos de la factura, mantiene la lista de detalles con
- * operaciones CRUD (Semana 5: {@code List<Detalle>}), aplica los eventos de
- * los botones (Semana 6) y al presionar <b>Emitir factura</b> construye el
- * modelo, lo valida y genera el XML del SRI.</p>
+ * <p>Recolecta los datos de la factura, mantiene el catalogo de productos
+ * con las 5 operaciones CRUD (Semana 5), aplica los eventos de los botones
+ * (Semana 6) y al presionar <b>Emitir factura</b> construye el modelo, lo
+ * valida y genera el XML del SRI.</p>
+ *
+ * <p><b>Colecciones y genericos (Semana 5):</b></p>
+ * <ul>
+ *   <li>{@code ArrayList<Detalle>} para el catalogo de productos.</li>
+ *   <li>{@code HashSet<String>} para evitar codigos duplicados en O(1).</li>
+ *   <li>{@code HashMap<String, ComprobanteElectronico>} en el registro.</li>
+ * </ul>
  */
 public class Pantalla extends JFrame {
 
     private static final DateTimeFormatter FORMATO_FECHA_UI = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
     private final RegistroComprobantes registro = new RegistroComprobantesEnMemoria();
-    private final List<Detalle> detalles = new ArrayList<>();
+
+    // Catalogo de productos: ArrayList mantiene el orden de captura;
+    // HashSet impide agregar dos veces el mismo codigo principal.
+    private final List<Detalle> productos = new ArrayList<>();
+    private final Set<String> codigosUsados = new HashSet<>();
 
     // Informacion tributaria
     private JComboBox<Ambiente> cmbAmbiente;
@@ -158,7 +174,8 @@ public class Pantalla extends JFrame {
 
     private JPanel panelDetalles() {
         JPanel p = new JPanel(new BorderLayout(6, 6));
-        p.setBorder(BorderFactory.createTitledBorder("Detalles de la factura"));
+        p.setBorder(BorderFactory.createTitledBorder(
+                "Catalogo de productos (CRUD sobre ArrayList + HashSet)"));
 
         modeloDetalles = new DefaultTableModel(
                 new Object[]{"Codigo", "Descripcion", "Cantidad", "P. Unitario",
@@ -170,20 +187,28 @@ public class Pantalla extends JFrame {
         };
         tblDetalles = new JTable(modeloDetalles);
         tblDetalles.setFillsViewportHeight(true);
+        tblDetalles.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         p.add(new JScrollPane(tblDetalles), BorderLayout.CENTER);
 
         JPanel botones = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        JButton btnAgregar = new JButton("Agregar producto");
-        JButton btnEliminar = new JButton("Eliminar seleccionado");
+        JButton btnAgregar = new JButton("Agregar");
+        JButton btnEditar = new JButton("Editar");
+        JButton btnEliminar = new JButton("Eliminar");
+        JButton btnBuscar = new JButton("Buscar");
         JButton btnLimpiar = new JButton("Limpiar tabla");
-        btnAgregar.addActionListener(e -> abrirDialogoDetalle());
+        btnAgregar.addActionListener(e -> abrirDialogoDetalle(null));
+        btnEditar.addActionListener(e -> editarDetalleSeleccionado());
         btnEliminar.addActionListener(e -> eliminarDetalleSeleccionado());
+        btnBuscar.addActionListener(e -> buscarProducto());
         btnLimpiar.addActionListener(e -> {
-            detalles.clear();
+            productos.clear();
+            codigosUsados.clear();
             modeloDetalles.setRowCount(0);
         });
         botones.add(btnAgregar);
+        botones.add(btnEditar);
         botones.add(btnEliminar);
+        botones.add(btnBuscar);
         botones.add(btnLimpiar);
         p.add(botones, BorderLayout.SOUTH);
         return p;
@@ -234,7 +259,9 @@ public class Pantalla extends JFrame {
     // Dialogo para agregar un detalle (producto)
     // ------------------------------------------------------------------
 
-    private void abrirDialogoDetalle() {
+    private void abrirDialogoDetalle(Detalle existente) {
+        boolean esEdicion = existente != null;
+
         JTextField txtCodigo = new JTextField(10);
         JTextField txtDescripcion = new JTextField(20);
         JTextField txtCantidad = new JTextField("1", 6);
@@ -247,6 +274,20 @@ public class Pantalla extends JFrame {
         cmbIva.setSelectedItem(TarifaIva.QUINCE);
         JTextField txtDetAdicNombre = new JTextField(10);
         JTextField txtDetAdicValor = new JTextField(10);
+
+        if (esEdicion) {
+            txtCodigo.setText(existente.getCodigoPrincipal());
+            txtDescripcion.setText(existente.getDescripcion());
+            txtCantidad.setText(existente.getCantidad().toPlainString());
+            txtPrecio.setText(existente.getPrecioUnitario().toPlainString());
+            txtDescuento.setText(existente.getDescuento().toPlainString());
+            cmbIva.setSelectedItem(tarifaDe(existente));
+            if (!existente.getDetallesAdicionales().isEmpty()) {
+                CampoAdicional ca = existente.getDetallesAdicionales().get(0);
+                txtDetAdicNombre.setText(ca.getNombre());
+                txtDetAdicValor.setText(ca.getValor());
+            }
+        }
 
         JPanel form = new JPanel(new GridLayout(0, 2, 6, 6));
         form.add(new JLabel("Codigo principal:"));
@@ -266,52 +307,123 @@ public class Pantalla extends JFrame {
         form.add(new JLabel("Detalle adicional (valor):"));
         form.add(txtDetAdicValor);
 
-        int opcion = JOptionPane.showConfirmDialog(this, form, "Agregar producto al detalle",
+        String titulo = esEdicion ? "Editar producto" : "Agregar producto al catalogo";
+        int opcion = JOptionPane.showConfirmDialog(this, form, titulo,
                 JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
         if (opcion != JOptionPane.OK_OPTION) {
             return;
         }
 
         try {
-            Detalle detalle = new Detalle(
-                    txtCodigo.getText(),
+            String codigo = txtCodigo.getText().trim();
+            String codigoOriginal = esEdicion ? existente.getCodigoPrincipal() : null;
+            boolean codigoCambio = esEdicion && !codigo.equals(codigoOriginal);
+            if ((!esEdicion || codigoCambio) && codigosUsados.contains(codigo)) {
+                throw new IllegalArgumentException(
+                        "Ya existe un producto con el codigo '" + codigo + "' en el catalogo");
+            }
+
+            Detalle nuevo = new Detalle(
+                    codigo,
                     txtDescripcion.getText(),
                     new BigDecimal(txtCantidad.getText()),
                     new BigDecimal(txtPrecio.getText()));
-            detalle.setDescuento(new BigDecimal(txtDescuento.getText()));
+            nuevo.setDescuento(new BigDecimal(txtDescuento.getText()));
             TarifaIva tarifa = (TarifaIva) cmbIva.getSelectedItem();
-            detalle.agregarIva(tarifa);
+            nuevo.agregarIva(tarifa);
             if (!txtDetAdicNombre.getText().trim().isEmpty()
                     && !txtDetAdicValor.getText().trim().isEmpty()) {
-                detalle.agregarDetalleAdicional(txtDetAdicNombre.getText(), txtDetAdicValor.getText());
+                nuevo.agregarDetalleAdicional(txtDetAdicNombre.getText(), txtDetAdicValor.getText());
             }
 
-            detalles.add(detalle);
-            modeloDetalles.addRow(new Object[]{
-                    detalle.getCodigoPrincipal(),
-                    detalle.getDescripcion(),
-                    detalle.getCantidad().toPlainString(),
-                    detalle.getPrecioUnitario().toPlainString(),
-                    detalle.getDescuento().toPlainString(),
-                    tarifa.getPorcentaje() + "%",
-                    detalle.getTotalLinea().toPlainString()
-            });
+            if (esEdicion) {
+                int idx = productos.indexOf(existente);
+                productos.set(idx, nuevo);
+                codigosUsados.remove(codigoOriginal);
+                codigosUsados.add(codigo);
+                escribirFila(idx, nuevo, tarifa);
+            } else {
+                productos.add(nuevo);
+                codigosUsados.add(codigo);
+                modeloDetalles.addRow(filaDe(nuevo, tarifa));
+            }
         } catch (RuntimeException ex) {
             JOptionPane.showMessageDialog(this,
-                    "No se pudo agregar el producto: " + ex.getMessage(),
+                    "No se pudo guardar el producto: " + ex.getMessage(),
                     "Error de validacion", JOptionPane.ERROR_MESSAGE);
         }
+    }
+
+    private void editarDetalleSeleccionado() {
+        int fila = tblDetalles.getSelectedRow();
+        if (fila < 0) {
+            JOptionPane.showMessageDialog(this, "Seleccione un producto para editar.",
+                    "Nada seleccionado", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        abrirDialogoDetalle(productos.get(fila));
     }
 
     private void eliminarDetalleSeleccionado() {
         int fila = tblDetalles.getSelectedRow();
         if (fila < 0) {
-            JOptionPane.showMessageDialog(this, "Seleccione una fila para eliminar.",
+            JOptionPane.showMessageDialog(this, "Seleccione un producto para eliminar.",
                     "Nada seleccionado", JOptionPane.WARNING_MESSAGE);
             return;
         }
-        detalles.remove(fila);
+        Detalle removido = productos.remove(fila);
+        codigosUsados.remove(removido.getCodigoPrincipal());
         modeloDetalles.removeRow(fila);
+    }
+
+    private void buscarProducto() {
+        String texto = JOptionPane.showInputDialog(this,
+                "Codigo o descripcion a buscar:", "Buscar producto",
+                JOptionPane.QUESTION_MESSAGE);
+        if (texto == null || texto.trim().isEmpty()) {
+            return;
+        }
+        String aguja = texto.trim().toLowerCase();
+        for (int i = 0; i < productos.size(); i++) {
+            Detalle d = productos.get(i);
+            if (d.getCodigoPrincipal().toLowerCase().contains(aguja)
+                    || d.getDescripcion().toLowerCase().contains(aguja)) {
+                tblDetalles.setRowSelectionInterval(i, i);
+                tblDetalles.scrollRectToVisible(tblDetalles.getCellRect(i, 0, true));
+                return;
+            }
+        }
+        JOptionPane.showMessageDialog(this,
+                "No se encontro ningun producto que coincida con: " + texto,
+                "Sin resultados", JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    private Object[] filaDe(Detalle d, TarifaIva tarifa) {
+        return new Object[]{
+                d.getCodigoPrincipal(),
+                d.getDescripcion(),
+                d.getCantidad().toPlainString(),
+                d.getPrecioUnitario().toPlainString(),
+                d.getDescuento().toPlainString(),
+                tarifa.getPorcentaje() + "%",
+                d.getTotalLinea().toPlainString()
+        };
+    }
+
+    private void escribirFila(int fila, Detalle d, TarifaIva tarifa) {
+        Object[] valores = filaDe(d, tarifa);
+        for (int c = 0; c < valores.length; c++) {
+            modeloDetalles.setValueAt(valores[c], fila, c);
+        }
+    }
+
+    private TarifaIva tarifaDe(Detalle d) {
+        for (Impuesto imp : d.getImpuestos()) {
+            if (imp instanceof Iva iva) {
+                return iva.getTarifaIva();
+            }
+        }
+        return TarifaIva.QUINCE;
     }
 
     // ------------------------------------------------------------------
@@ -320,10 +432,10 @@ public class Pantalla extends JFrame {
 
     private void emitirFactura() {
         try {
-            if (detalles.isEmpty()) {
+            if (productos.isEmpty()) {
                 JOptionPane.showMessageDialog(this,
-                        "Agregue al menos un detalle antes de emitir la factura.",
-                        "Sin detalles", JOptionPane.WARNING_MESSAGE);
+                        "Agregue al menos un producto antes de emitir la factura.",
+                        "Sin productos", JOptionPane.WARNING_MESSAGE);
                 return;
             }
 
@@ -346,7 +458,7 @@ public class Pantalla extends JFrame {
             factura.setContribuyenteEspecial(txtContribEspecial.getText());
             factura.setObligadoContabilidad("SI".equals(cmbObligadoContabilidad.getSelectedItem()));
 
-            for (Detalle d : detalles) {
+            for (Detalle d : productos) {
                 factura.agregarDetalle(d);
             }
             factura.agregarPago(new Pago((FormaPago) cmbFormaPago.getSelectedItem(),
