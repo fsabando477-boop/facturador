@@ -507,17 +507,19 @@ public class Pantalla extends JFrame {
             return;
         }
         File destino = chooser.getSelectedFile();
-        try (FileWriter writer = new FileWriter(destino)) {
+        try (FileWriter writer = new FileWriter(destino, java.nio.charset.StandardCharsets.UTF_8)) {
             writer.write(xml);
-            JOptionPane.showMessageDialog(this,
-                    "Factura emitida correctamente.\nClave de acceso:\n" + claveAcceso
-                            + "\n\nXML guardado en:\n" + destino.getAbsolutePath(),
-                    "Emitida", JOptionPane.INFORMATION_MESSAGE);
+            writer.flush();
         } catch (IOException ex) {
             JOptionPane.showMessageDialog(this,
                     "No se pudo escribir el archivo: " + ex.getMessage(),
                     "Error de E/S", JOptionPane.ERROR_MESSAGE);
+            return;
         }
+        JOptionPane.showMessageDialog(this,
+                "Factura emitida correctamente.\nClave de acceso:\n" + claveAcceso
+                        + "\n\nXML guardado en:\n" + destino.getAbsolutePath(),
+                "Emitida", JOptionPane.INFORMATION_MESSAGE);
     }
 
     private void listarComprobantes() {
